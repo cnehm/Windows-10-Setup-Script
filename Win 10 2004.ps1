@@ -370,10 +370,6 @@ New-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Privacy -
 #endregion Privacy & Telemetry
 
 #region UI & Personalization
-# Show "This PC" on Desktop
-# Отобразить "Этот компьютер" на рабочем столе
-New-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel -Name "{20D04FE0-3AEA-1069-A2D8-08002B30309D}" -PropertyType DWord -Value 0 -Force
-
 # Do not use check boxes to select items
 # Не использовать флажки для выбора элементов
 New-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced -Name AutoCheckSelect -PropertyType DWord -Value 0 -Force
@@ -417,10 +413,6 @@ if (-not (Test-Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Adv
 	New-Item -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\People -Force
 }
 New-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\People -Name PeopleBand -PropertyType DWord -Value 0 -Force
-
-# Show seconds on taskbar clock
-# Отображать секунды в системных часах на панели задач
-New-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced -Name ShowSecondsInSystemClock -PropertyType DWord -Value 1 -Force
 
 # Increase taskbar transparency
 # Увеличить прозрачность панели задач
@@ -480,10 +472,6 @@ New-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Search -N
 # Do not show "Windows Ink Workspace" button in taskbar
 # Не показывать кнопку Windows Ink Workspace на панели задач
 New-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\PenWorkspace -Name PenWorkspaceButtonDesiredVisibility -PropertyType DWord -Value 0 -Force
-
-# Always show all icons in the notification area
-# Всегда отображать все значки в области уведомлений
-New-ItemProperty -Path HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer -Name EnableAutoTray -PropertyType DWord -Value 0 -Force
 
 # Unpin Microsoft Edge and Microsoft Store from taskbar
 # Открепить Microsoft Edge и Microsoft Store от панели задач
@@ -676,122 +664,6 @@ New-ItemProperty -Path "HKCU:\Control Panel\Keyboard" -Name PrintScreenKeyForSni
 # Автоматически изменять период активности для этого устройства на основе действий
 New-ItemProperty -Path HKLM:\SOFTWARE\Microsoft\WindowsUpdate\UX\Settings -Name SmartActiveHoursState -PropertyType DWord -Value 1 -Force
 #endregion UI & Personalization
-
-#region OneDrive
-# Uninstall OneDrive
-# Удалить OneDrive
-[string]$UninstallString = Get-Package -Name "Microsoft OneDrive" -ErrorAction Ignore | ForEach-Object -Process {$_.Meta.Attributes["UninstallString"]}
-if ($UninstallString)
-{
-	if ($RU)
-	{
-		Write-Verbose -Message "Удаление OneDrive" -Verbose
-	}
-	else
-	{
-		Write-Verbose -Message "Uninstalling OneDrive" -Verbose
-	}
-	Stop-Process -Name OneDrive -Force -ErrorAction Ignore
-	Stop-Process -Name FileCoAuth -Force -ErrorAction Ignore
-
-	# Save all opened folders in order to restore them after File Explorer restarting
-	# Сохранить все открытые папки, чтобы восстановить их после перезапуска проводника
-	Clear-Variable -Name OpenedFolders -Force -ErrorAction Ignore
-	$OpenedFolders = {(New-Object -ComObject Shell.Application).Windows() | ForEach-Object -Process {$_.Document.Folder.Self.Path}}.Invoke()
-
-	# Getting link to the OneDriveSetup.exe and its' argument(s)
-	# Получаем ссылку на OneDriveSetup.exe и его аргумент(ы)
-	[string[]]$OneDriveSetup = ($UninstallString -Replace("\s*/",",/")).Split(",").Trim()
-	if ($OneDriveSetup.Count -eq 2)
-	{
-		Start-Process -FilePath $OneDriveSetup[0] -ArgumentList $OneDriveSetup[1..1] -Wait
-	}
-	else
-	{
-		Start-Process -FilePath $OneDriveSetup[0] -ArgumentList $OneDriveSetup[1..2] -Wait
-	}
-	Stop-Process -Name explorer -Force
-
-	# Restoring closed folders
-	# Восстановляем закрытые папки
-	foreach ($OpenedFolder in $OpenedFolders)
-	{
-		if (Test-Path -Path $OpenedFolder)
-		{
-			Invoke-Item -Path $OpenedFolder
-		}
-	}
-
-	# Getting the OneDrive user folder path
-	# Получаем путь до папки пользователя OneDrive
-	$OneDriveUserFolder = Get-ItemPropertyValue -Path HKCU:\Environment -Name OneDrive
-	if ((Get-ChildItem -Path $OneDriveUserFolder | Measure-Object).Count -eq 0)
-	{
-		Remove-Item -Path $OneDriveUserFolder -Recurse -Force
-	}
-	else
-	{
-		if ($RU)
-		{
-			Write-Error -Message "Папка $OneDriveUserFolder не пуста. Удалите ее вручную" -ErrorAction SilentlyContinue
-		}
-		else
-		{
-			Write-Error -Message "The $OneDriveUserFolder folder is not empty. Delete it manually" -ErrorAction SilentlyContinue
-		}
-		Invoke-Item -Path $OneDriveUserFolder
-	}
-
-	Remove-ItemProperty -Path HKCU:\Environment -Name OneDrive, OneDriveConsumer -Force -ErrorAction Ignore
-	Remove-Item -Path HKCU:\Software\Microsoft\OneDrive -Recurse -Force -ErrorAction Ignore
-	Remove-Item -Path HKLM:\SOFTWARE\WOW6432Node\Microsoft\OneDrive -Recurse -Force -ErrorAction Ignore
-	Remove-Item -Path "$env:ProgramData\Microsoft OneDrive" -Recurse -Force -ErrorAction Ignore
-	Remove-Item -Path $env:SystemDrive\OneDriveTemp -Recurse -Force -ErrorAction Ignore
-	Unregister-ScheduledTask -TaskName *OneDrive* -Confirm:$false
-
-	# Getting the OneDrive folder path
-	# Получаем путь до папки OneDrive
-	$OneDriveFolder = Split-Path -Path (Split-Path -Path $OneDriveSetup[0] -Parent)
-	# Waiting for the FileSyncShell64.dll to be unloaded, using System.IO.File class
-	# Ожидаем, пока FileSyncShell64.dll выгрузится, используя класс System.IO.File
-	$FileSyncShell64dllFolder = Get-ChildItem -Path "$OneDriveFolder\*\amd64\FileSyncShell64.dll" -Force
-	foreach ($FileSyncShell64dll in $FileSyncShell64dllFolder)
-	{
-		do
-		{
-			try
-			{
-				$FileStream = [System.IO.File]::Open($FileSyncShell64dll.FullName,"Open","Write")
-				$FileStream.Close()
-				$FileStream.Dispose()
-				$Locked = $false
-			}
-			catch [System.UnauthorizedAccessException]
-			{
-				$Locked = $true
-			}
-			catch [Exception]
-			{
-				Start-Sleep -Milliseconds 500
-				if ($RU)
-				{
-					Write-Verbose -Message "Ожидаем, пока $FileSyncShell64dll будет разблокирована" -Verbose
-				}
-				else
-				{
-					Write-Verbose -Message "Waiting for the $FileSyncShell64dll to be unlocked" -Verbose
-				}
-			}
-		}
-		while ($Locked)
-	}
-
-	Remove-Item -Path $OneDriveFolder -Recurse -Force -ErrorAction Ignore
-	Remove-Item -Path $env:LOCALAPPDATA\OneDrive -Recurse -Force -ErrorAction Ignore
-	Remove-Item -Path $env:LOCALAPPDATA\Microsoft\OneDrive -Recurse -Force -ErrorAction Ignore
-	Remove-Item -Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\OneDrive.lnk" -Force -ErrorAction Ignore
-}
-#endregion OneDrive
 
 #region System
 # Turn on Storage Sense
@@ -1236,10 +1108,6 @@ if ((Get-CimInstance -ClassName Win32_ComputerSystem).PCSystemType -ne 2)
 		$adapter | Set-NetAdapterPowerManagement
 	}
 }
-
-# Set the default input method to the English language
-# Установить метод ввода по умолчанию на английский язык
-Set-WinDefaultInputMethodOverride "0409:00000409"
 
 # Turn on Windows Sandbox
 # Включить Windows Sandbox
@@ -1815,10 +1683,6 @@ switch ($Result)
 	}
 }
 
-# Save screenshots by pressing Win+PrtScr to the Desktop
-# Сохранять скриншоты по нажатию Win+PrtScr на рабочем столе
-$DesktopFolder = Get-ItemPropertyValue -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name Desktop
-Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name "{B7BEDE81-DF94-4682-A7D8-57A52620B86F}" -Type ExpandString -Value $DesktopFolder -Force
 # Save all opened folders in order to restore them after File Explorer restart
 # Сохранить все открытые папки, чтобы восстановить их после перезапуска проводника
 Clear-Variable -Name OpenedFolders -Force -ErrorAction Ignore
@@ -2005,135 +1869,6 @@ switch ($Result)
 			Write-Verbose -Message "Skipped" -Verbose
 		}
 	}
-}
-
-# Pin the shortcuts to Start
-# Закрепить ярлыки на начальном экране
-if (Test-Path -Path $PSScriptRoot\syspin.exe)
-{
-	$syspin = $true
-}
-else
-{
-	try
-	{
-		# Downloading syspin.exe
-		# Скачиваем syspin.exe
-		# http://www.technosys.net/products/utils/pintotaskbar
-		# SHA256: 6967E7A3C2251812DD6B3FA0265FB7B61AADC568F562A98C50C345908C6E827
-		[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-		if ((Invoke-WebRequest -Uri https://www.google.com -UseBasicParsing -DisableKeepAlive -Method Head).StatusDescription)
-		{
-			$Parameters = @{
-				Uri = "https://github.com/farag2/Windows-10-Setup-Script/raw/master/Start%20menu%20pinning/syspin.exe"
-				OutFile = "$PSScriptRoot\syspin.exe"
-				Verbose = [switch]::Present
-			}
-			Invoke-WebRequest @Parameters
-			$syspin = $true
-		}
-	}
-	catch
-	{
-		if ($Error.Exception.Status -eq "NameResolutionFailure")
-		{
-			if ($RU)
-			{
-				Write-Warning -Message "Отсутствует интернет-соединение" -ErrorAction SilentlyContinue
-			}
-			else
-			{
-				Write-Warning -Message "No Internet connection" -ErrorAction SilentlyContinue
-			}
-		}
-	}
-}
-
-if ($syspin -eq $true)
-{
-	# Pin "Control Panel" to Start
-	# Закрепить "Панель управления" на начальном экране
-	$Items = (New-Object -ComObject Shell.Application).NameSpace("shell:::{4234d49b-0245-4df3-b780-3893943456e1}").Items()
-	$ControlPanelLocalizedName = ($Items | Where-Object -FilterScript {$_.Path -eq "Microsoft.Windows.ControlPanel"}).Name
-	if ($RU)
-	{
-		Write-Verbose -Message "Ярлык `"$ControlPanelLocalizedName`" закрепляется на начальном экране" -Verbose
-	}
-	else
-	{
-		Write-Verbose -Message "`"$ControlPanelLocalizedName`" shortcut is being pinned to Start" -Verbose
-	}
-	# Check whether the Control Panel shortcut was ever pinned
-	# Проверка: закреплялся ли когда-нибудь ярлык панели управления
-	if (Test-Path -Path "$env:APPDATA\Microsoft\Windows\Start menu\Programs\$ControlPanelLocalizedName.lnk")
-	{
-		$Arguments = @"
-			"$env:APPDATA\Microsoft\Windows\Start menu\Programs\$ControlPanelLocalizedName.lnk" "51201"
-"@
-			Start-Process -FilePath $PSScriptRoot\syspin.exe -WindowStyle Hidden -ArgumentList $Arguments -Wait
-	}
-	else
-	{
-		# The "Pin" verb is not available on the control.exe file so the shortcut has to be created
-		# Глагол "Закрепить на начальном экране" недоступен для control.exe, поэтому необходимо создать ярлык
-		$Shell = New-Object -ComObject Wscript.Shell
-		$Shortcut = $Shell.CreateShortcut("$env:SystemRoot\System32\$ControlPanelLocalizedName.lnk")
-		$Shortcut.TargetPath = "$env:SystemRoot\System32\control.exe"
-		$Shortcut.Save()
-
-		$Arguments = @"
-			"$env:SystemRoot\System32\$ControlPanelLocalizedName.lnk" "51201"
-"@
-		Start-Process -FilePath $PSScriptRoot\syspin.exe -WindowStyle Hidden -ArgumentList $Arguments -Wait
-		Remove-Item -Path "$env:SystemRoot\System32\$ControlPanelLocalizedName.lnk" -Force
-	}
-
-	# Pin "Devices and Printers" to Start
-	# Create old style shortcut for the "Devices and Printers" in the Start menu
-	# Закрепить "Устройства и принтеры" на начальном экране
-	# Создать ярлык старого формата для "Устройства и принтеры" в меню "Пуск"
-	$DevicesAndPrintersLocalizedName = (Get-ControlPanelItem | Where-Object -FilterScript {$_.CanonicalName -eq "Microsoft.DevicesAndPrinters"}).Name
-	if ($RU)
-	{
-		Write-Verbose -Message "Ярлык `"$DevicesAndPrintersLocalizedName`" закрепляется на начальном экране" -Verbose
-	}
-	else
-	{
-		Write-Verbose -Message "`"$DevicesAndPrintersLocalizedName`" shortcut is being pinned to Start" -Verbose
-	}
-	$Shell = New-Object -ComObject Wscript.Shell
-	$Shortcut = $Shell.CreateShortcut("$env:APPDATA\Microsoft\Windows\Start menu\Programs\System Tools\$DevicesAndPrintersLocalizedName.lnk")
-	$Shortcut.TargetPath = "control"
-	$Shortcut.Arguments = "printers"
-	$Shortcut.IconLocation = "$env:SystemRoot\system32\DeviceCenter.dll"
-	$Shortcut.Save()
-
-	# Pause for 3 sec, unless the "Devices and Printers" shortcut won't displayed in the Start menu
-	# Пауза на 3 с, иначе ярлык "Устройства и принтеры" не будет отображаться в меню "Пуск"
-	Start-Sleep -Seconds 3
-	$Arguments = @"
-		"$env:APPDATA\Microsoft\Windows\Start menu\Programs\System Tools\$DevicesAndPrintersLocalizedName.lnk" "51201"
-"@
-	Start-Process -FilePath $PSScriptRoot\syspin.exe -WindowStyle Hidden -ArgumentList $Arguments -Wait
-
-	# Pin "Command Prompt" to Start
-	# Закрепить "Командную строку" на начальном экране
-	if ($RU)
-	{
-		Write-Verbose -Message "Ярлык `"Командная строка`" закрепляется на начальном экране" -Verbose
-	}
-	else
-	{
-		Write-Verbose -Message "`"Command Prompt`" shortcut is being pinned to Start" -Verbose
-	}
-	$Arguments = @"
-		"$env:APPDATA\Microsoft\Windows\Start menu\Programs\System Tools\Command Prompt.lnk" "51201"
-"@
-	Start-Process -FilePath $PSScriptRoot\syspin.exe -WindowStyle Hidden -ArgumentList $Arguments -Wait
-
-	# Restart the Start menu
-	# Перезапустить меню "Пуск"
-	Stop-Process -Name StartMenuExperienceHost -Force
 }
 #endregion Start menu
 
